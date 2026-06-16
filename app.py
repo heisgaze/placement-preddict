@@ -2,709 +2,926 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import json
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
+import matplotlib.patches as mpatches
 import seaborn as sns
 from sklearn.decomposition import PCA
-from sklearn.metrics import confusion_matrix, roc_curve, auc, classification_report
+from sklearn.metrics import (
+    confusion_matrix, ConfusionMatrixDisplay,
+    roc_curve, roc_auc_score,
+    accuracy_score, precision_score, recall_score, f1_score,
+    classification_report
+)
+import warnings
+warnings.filterwarnings('ignore')
 
-# =========================
-# Page Config
-# =========================
+# ─────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Student Placement Prediction",
+    page_title="Student Placement Analytics",
     page_icon="🎓",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# =========================
-# Custom CSS
-# =========================
+# ─────────────────────────────────────────────────────────────────
+# CUSTOM CSS
+# ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Main background */
-    .stApp {
-        background-color: #0f1117;
-        color: #e0e0e0;
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap');
+
+    /* Global */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
+
+    /* Main background */
+    .main { background-color: #F7F8FC; }
+    .block-container { padding: 2rem 2.5rem 2rem 2.5rem; }
 
     /* Sidebar */
     [data-testid="stSidebar"] {
-        background-color: #1a1d27;
-        border-right: 1px solid #2a2d3e;
+        background: linear-gradient(180deg, #1A1D2E 0%, #252840 100%);
+        border-right: 1px solid #2E3250;
+    }
+    [data-testid="stSidebar"] * { color: #E0E4F8 !important; }
+    [data-testid="stSidebar"] .stRadio label {
+        font-size: 0.9rem;
+        padding: 0.4rem 0;
+        color: #A8AED4 !important;
+    }
+    [data-testid="stSidebar"] .stRadio label:hover { color: #FFFFFF !important; }
+
+    /* Page header */
+    .page-header {
+        background: linear-gradient(135deg, #1A1D2E 0%, #2D3561 60%, #3D4A8A 100%);
+        padding: 2rem 2.5rem;
+        border-radius: 16px;
+        margin-bottom: 2rem;
+        color: white;
+        position: relative;
+        overflow: hidden;
+    }
+    .page-header::after {
+        content: '';
+        position: absolute;
+        top: -40px; right: -40px;
+        width: 200px; height: 200px;
+        background: rgba(100, 130, 255, 0.15);
+        border-radius: 50%;
+    }
+    .page-header h1 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin: 0 0 0.25rem 0;
+        color: #FFFFFF;
+    }
+    .page-header p {
+        color: #A8B4E8;
+        margin: 0;
+        font-size: 0.9rem;
     }
 
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
-        background-color: #1a1d27;
-        border-radius: 10px;
-        padding: 6px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 44px;
-        border-radius: 8px;
-        background-color: transparent;
-        color: #8b8fa8;
-        font-weight: 500;
-        font-size: 14px;
-        padding: 0 18px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #4f8ef7 !important;
-        color: white !important;
+    /* Section title */
+    .section-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #ffffff;
+        margin: 1.5rem 0 1rem 0;
+        padding-left: 0.75rem;
+        border-left: 4px solid #4361EE;
     }
 
     /* Metric cards */
-    [data-testid="metric-container"] {
-        background-color: #1a1d27;
-        border: 1px solid #2a2d3e;
+    .metric-card {
+        background: #FFFFFF;
         border-radius: 12px;
-        padding: 16px 20px;
+        padding: 1.25rem 1.5rem;
+        border: 1px solid #E8EAFF;
+        box-shadow: 0 2px 12px rgba(67, 97, 238, 0.06);
+        text-align: center;
     }
-    [data-testid="metric-container"] label {
-        color: #8b8fa8 !important;
-        font-size: 12px !important;
+    .metric-card .metric-value {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1A1D2E;
+        line-height: 1;
+    }
+    .metric-card .metric-label {
+        font-size: 0.75rem;
+        color: #7B82A8;
+        margin-top: 0.4rem;
+        font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
-    [data-testid="metric-container"] [data-testid="stMetricValue"] {
-        color: #ffffff !important;
-        font-size: 28px !important;
-        font-weight: 700;
+    .metric-card .metric-sub {
+        font-size: 0.8rem;
+        color: #4361EE;
+        font-weight: 600;
+        margin-top: 0.25rem;
     }
 
-    /* Section headers */
-    .section-header {
-        font-size: 18px;
-        font-weight: 700;
-        color: #ffffff;
-        margin-bottom: 12px;
-        padding-bottom: 8px;
-        border-bottom: 2px solid #4f8ef7;
-        display: inline-block;
-    }
-
-    /* Card containers */
-    .card {
-        background-color: #1a1d27;
-        border: 1px solid #2a2d3e;
+    /* Chart card */
+    .chart-card {
+        background: #FFFFFF;
         border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 16px;
+        padding: 1.25rem;
+        border: 1px solid #E8EAFF;
+        box-shadow: 0 2px 12px rgba(67, 97, 238, 0.06);
+        margin-bottom: 1rem;
     }
 
-    /* Cluster badges */
-    .badge-inactive {
-        background-color: #ff4b4b22;
-        border: 1px solid #ff4b4b55;
-        color: #ff6b6b;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
+    /* Prediction result */
+    .pred-placed {
+        background: linear-gradient(135deg, #10B981, #059669);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-radius: 16px;
+        text-align: center;
     }
-    .badge-active {
-        background-color: #00c85322;
-        border: 1px solid #00c85355;
-        color: #00c853;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
+    .pred-not-placed {
+        background: linear-gradient(135deg, #EF4444, #DC2626);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-radius: 16px;
+        text-align: center;
     }
+    .pred-label {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.6rem;
+        font-weight: 700;
+    }
+    .pred-sub { font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem; }
 
-    /* Title */
-    .main-title {
-        font-size: 32px;
-        font-weight: 800;
-        background: linear-gradient(90deg, #4f8ef7, #a855f7);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 4px;
-    }
-    .main-subtitle {
-        color: #8b8fa8;
-        font-size: 14px;
-        margin-bottom: 24px;
-    }
-
-    /* DataFrame styling */
-    [data-testid="stDataFrame"] {
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        background: #EDEEFF;
         border-radius: 10px;
-        overflow: hidden;
+        padding: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 0.85rem;
+        color: #7B82A8;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #FFFFFF !important;
+        color: #4361EE !important;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
     }
 
-    /* Prediction result box */
-    .predict-placed {
-        background: linear-gradient(135deg, #00c85322, #00c85311);
-        border: 2px solid #00c853;
-        border-radius: 16px;
-        padding: 28px;
-        text-align: center;
-        margin-top: 12px;
+    /* Info box */
+    .info-box {
+        background: #EEF2FF;
+        border: 1px solid #C7D2FE;
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        font-size: 0.82rem;
+        color: #3730A3;
+        margin: 0.75rem 0;
+        line-height: 1.5;
     }
-    .predict-notplaced {
-        background: linear-gradient(135deg, #ff4b4b22, #ff4b4b11);
-        border: 2px solid #ff4b4b;
-        border-radius: 16px;
-        padding: 28px;
-        text-align: center;
-        margin-top: 12px;
-    }
-    .predict-label {
-        font-size: 26px;
-        font-weight: 800;
-        letter-spacing: 0.05em;
-    }
-    .predict-prob {
-        font-size: 42px;
-        font-weight: 900;
-        margin: 8px 0 4px;
-    }
-    .predict-desc {
-        font-size: 12px;
-        color: #8b8fa8;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-    }
+
+    /* Hide Streamlit default elements */
+    #MainMenu, footer { visibility: hidden; }
+    .stDeployButton { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# Matplotlib dark theme
-# =========================
-plt.rcParams.update({
-    "figure.facecolor": "#1a1d27",
-    "axes.facecolor": "#1a1d27",
-    "axes.edgecolor": "#2a2d3e",
-    "axes.labelcolor": "#c0c4d6",
-    "xtick.color": "#8b8fa8",
-    "ytick.color": "#8b8fa8",
-    "text.color": "#c0c4d6",
-    "grid.color": "#2a2d3e",
-    "grid.linewidth": 0.7,
-})
-ACCENT = "#4f8ef7"
-ACCENT2 = "#a855f7"
-GREEN  = "#00c853"
-RED    = "#ff4b4b"
 
-# =========================
-# Load Model & Scaler
-# =========================
+# ─────────────────────────────────────────────────────────────────
+# LOAD ARTIFACTS (with graceful fallback)
+# ─────────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_artifacts():
-    model  = joblib.load("model/random_forest_model.pkl")
-    scaler = joblib.load("model/scaler.pkl")
-    return model, scaler
+    artifacts = {}
+    try:
+        artifacts['model']          = joblib.load('model/best_model.pkl')
+        artifacts['scaler']         = joblib.load('model/scaler.pkl')
+        artifacts['le']             = joblib.load('model/label_encoder.pkl')
+        artifacts['scaler_cluster'] = joblib.load('model/scaler_cluster.pkl')
+        artifacts['kmeans']         = joblib.load('model/kmeans.pkl')
+        artifacts['X_test']         = joblib.load('model/X_test.pkl')
+        artifacts['y_test']         = joblib.load('model/y_test.pkl')
+        with open('model/feature_names.json') as f:
+            artifacts['feature_names'] = json.load(f)
+        with open('model/model_info.json') as f:
+            artifacts['model_info'] = json.load(f)
+        artifacts['loaded'] = True
+    except Exception as e:
+        artifacts['loaded'] = False
+        artifacts['error'] = str(e)
+    return artifacts
+
 
 @st.cache_data
 def load_dataset():
-    # ── Ganti path ini sesuai file dataset kamu ──
     try:
-        df = pd.read_csv("data/student_data.csv")
-    except FileNotFoundError:
-        rng = np.random.default_rng(42)
-        n = 1000
-        df = pd.DataFrame({
-            "study_hours"         : rng.uniform(0, 12, n),
-            "attendance"          : rng.integers(40, 101, n).astype(float),
-            "sleep_hours"         : rng.uniform(3, 10, n),
-            "internet_usage"      : rng.uniform(0, 12, n),
-            "assignments_completed": rng.integers(0, 21, n).astype(float),
-            "previous_score"      : rng.integers(30, 101, n).astype(float),
-            "productive_score"    : rng.uniform(0, 10, n),
-            "academic_composite"  : rng.uniform(0, 1, n),
-            "digital_balance"     : rng.uniform(-10, 10, n),
-            "sleep_quality"       : rng.uniform(0, 1, n),
-        })
-        # Simulasi label placement berdasarkan productive_score
-        score = (
-            df["productive_score"] * 0.35 +
-            df["study_hours"]      * 0.20 +
-            df["academic_composite"] * 10 * 0.20 +
-            (df["digital_balance"] + 10) / 20 * 10 * 0.15 +
-            df["attendance"] / 10 * 0.10
-        )
-        threshold = np.percentile(score, 35)
-        df["placement_status"] = (score >= threshold).astype(int)
-        df["cluster"] = (df["productive_score"] >= 5.0).astype(int)
+        df = pd.read_csv('datasets/student_dataset_10000_rows.csv')
+        return df
+    except:
+        return None
+
+
+def apply_feature_engineering(df):
+    df = df.copy()
+    df['productive_score']   = df['study_hours'] * 0.5 + df['assignments_completed'] * 0.3
+    df['academic_composite'] = (df['previous_score'] / 95) * 0.6 + (df['attendance'] / 100) * 0.4
+    df['digital_balance']    = df['study_hours'] - df['internet_usage']
+    df['sleep_quality']      = df['sleep_hours'].apply(
+        lambda x: 1 if 7 <= x <= 9 else (0.5 if x in [6, 10] else 0)
+    )
     return df
 
-try:
-    model, scaler = load_artifacts()
-    model_loaded = True
-except Exception:
-    model_loaded = False
-    st.warning("⚠️ Model tidak ditemukan di `model/`. Tab Prediksi & Performa Model menggunakan data simulasi.")
 
-df = load_dataset()
-FEATURES = [
-    "study_hours", "attendance", "sleep_hours", "internet_usage",
-    "assignments_completed", "previous_score", "productive_score",
-    "academic_composite", "digital_balance", "sleep_quality"
-]
+# ─────────────────────────────────────────────────────────────────
+# PLOT HELPERS  (matplotlib — Streamlit-safe)
+# ─────────────────────────────────────────────────────────────────
+PALETTE     = ['#4361EE', '#F72585', '#7209B7', '#3A0CA3', '#4CC9F0', '#06D6A0']
+PLACED_CLR  = '#10B981'
+NOT_CLR     = '#EF4444'
+BG          = '#FFFFFF'
+GRID        = '#F0F2FF'
 
-# =========================
-# Header
-# =========================
-st.markdown('<p class="main-title">🎓 Student Placement Dashboard</p>', unsafe_allow_html=True)
-st.markdown('<p class="main-subtitle">Analisis prediktif penempatan mahasiswa berbasis Machine Learning · Random Forest + K-Means Clustering</p>', unsafe_allow_html=True)
-
-# =========================
-# Tabs
-# =========================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Statistik Dataset",
-    "🔍 Eksplorasi Data (EDA)",
-    "🗂️ Clustering",
-    "🤖 Performa Model",
-    "🎯 Prediksi Interaktif",
-])
+def _fig(w=7, h=4):
+    fig, ax = plt.subplots(figsize=(w, h), facecolor=BG)
+    ax.set_facecolor(BG)
+    ax.tick_params(colors='#555')
+    for spine in ax.spines.values():
+        spine.set_color('#E0E4F8')
+    return fig, ax
 
 
-# ═══════════════════════════════════════════════════════
-# TAB 1 – STATISTIK DATASET
-# ═══════════════════════════════════════════════════════
-with tab1:
-    st.markdown('<p class="section-header">Ringkasan Dataset</p>', unsafe_allow_html=True)
+# ─────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style='text-align:center; padding: 1rem 0 1.5rem'>
+        <div style='font-size:2.5rem'>🎓</div>
+        <div style='font-family: Space Grotesk, sans-serif; font-size:1.1rem; font-weight:700; color:#FFFFFF'>
+            Student Placement
+        </div>
+        <div style='font-size:0.75rem; color:#6B7280; margin-top:0.25rem'>Analytics Dashboard</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    total   = len(df)
-    placed  = int(df["placement_status"].sum())
-    n_placed = placed
-    n_not   = total - placed
-    pct_placed = placed / total * 100
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Data",      f"{total:,}")
-    c2.metric("Placed ✅",       f"{n_placed:,}", f"{pct_placed:.1f}%")
-    c3.metric("Not Placed ❌",   f"{n_not:,}",    f"{100-pct_placed:.1f}%")
-    c4.metric("Jumlah Fitur",    f"{len(FEATURES)}")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Distribusi kelas — donut-style bar
-    col_chart, col_table = st.columns([1, 2])
-
-    with col_chart:
-        st.markdown('<p class="section-header">Distribusi Kelas</p>', unsafe_allow_html=True)
-        fig, ax = plt.subplots(figsize=(4, 4))
-        sizes  = [n_placed, n_not]
-        colors = [GREEN, RED]
-        wedge_props = {"width": 0.55, "edgecolor": "#1a1d27", "linewidth": 3}
-        ax.pie(sizes, labels=["Placed", "Not Placed"], colors=colors,
-               autopct="%1.1f%%", startangle=90, wedgeprops=wedge_props,
-               textprops={"color": "#c0c4d6", "fontsize": 12})
-        ax.set(facecolor="#1a1d27")
-        fig.patch.set_facecolor("#1a1d27")
-        st.pyplot(fig, use_container_width=True)
-
-    with col_table:
-        st.markdown('<p class="section-header">Statistik Deskriptif</p>', unsafe_allow_html=True)
-        desc = df[FEATURES].describe().T[["mean", "std", "min", "50%", "max"]]
-        desc.columns = ["Mean", "Std", "Min", "Median", "Max"]
-        desc = desc.round(3)
-        st.dataframe(desc, use_container_width=True, height=360)
-
-
-# ═══════════════════════════════════════════════════════
-# TAB 2 – EDA
-# ═══════════════════════════════════════════════════════
-with tab2:
-    st.markdown('<p class="section-header">Distribusi Fitur</p>', unsafe_allow_html=True)
-
-    selected_features = st.multiselect(
-        "Pilih fitur untuk histogram:",
-        FEATURES,
-        default=["study_hours", "productive_score", "attendance", "academic_composite"]
+    page = st.radio(
+        "Navigasi",
+        [
+            "📊  Ringkasan Dataset",
+            "🔍  Exploratory Data Analysis",
+            "🗂️  Clustering",
+            "🤖  Performa Model",
+            "🎯  Prediksi Interaktif"
+        ],
+        label_visibility="collapsed"
     )
 
-    if selected_features:
-        n_cols = 2
-        rows   = (len(selected_features) + 1) // n_cols
-        fig, axes = plt.subplots(rows, n_cols, figsize=(12, 3.5 * rows))
-        axes = np.array(axes).flatten()
+    arts = load_artifacts()
+    df_raw = load_dataset()
 
-        for i, feat in enumerate(selected_features):
-            ax = axes[i]
-            placed_vals  = df.loc[df["placement_status"] == 1, feat]
-            nplaced_vals = df.loc[df["placement_status"] == 0, feat]
-            bins = 25
-            ax.hist(nplaced_vals, bins=bins, color=RED,   alpha=0.65, label="Not Placed", edgecolor="none")
-            ax.hist(placed_vals,  bins=bins, color=GREEN, alpha=0.65, label="Placed",     edgecolor="none")
-            ax.set_title(feat.replace("_", " ").title(), fontsize=11, fontweight="bold", color="#ffffff")
-            ax.set_xlabel("")
-            ax.grid(axis="y", alpha=0.4)
-            ax.legend(fontsize=8, facecolor="#1a1d27", edgecolor="#2a2d3e", labelcolor="#c0c4d6")
-
-        for j in range(i + 1, len(axes)):
-            axes[j].set_visible(False)
-
-        fig.tight_layout(pad=2.0)
-        fig.patch.set_facecolor("#1a1d27")
-        st.pyplot(fig, use_container_width=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<p class="section-header">Heatmap Korelasi</p>', unsafe_allow_html=True)
-
-    corr = df[FEATURES + ["placement_status"]].corr()
-    fig2, ax2 = plt.subplots(figsize=(11, 8))
-    mask = np.triu(np.ones_like(corr, dtype=bool), k=1)
-    cmap = sns.diverging_palette(220, 20, as_cmap=True)
-    sns.heatmap(
-        corr, mask=mask, cmap=cmap, center=0,
-        annot=True, fmt=".2f", annot_kws={"size": 8},
-        linewidths=0.5, linecolor="#2a2d3e",
-        cbar_kws={"shrink": 0.8},
-        ax=ax2
-    )
-    ax2.set_title("Correlation Heatmap — Semua Fitur + Target", fontsize=13,
-                  fontweight="bold", color="#ffffff", pad=14)
-    fig2.patch.set_facecolor("#1a1d27")
-    ax2.set_facecolor("#1a1d27")
-    st.pyplot(fig2, use_container_width=True)
-
-
-# ═══════════════════════════════════════════════════════
-# TAB 3 – CLUSTERING
-# ═══════════════════════════════════════════════════════
-with tab3:
-    st.markdown('<p class="section-header">Hasil K-Means Clustering</p>', unsafe_allow_html=True)
-
-    # PCA 2D scatter
-    col_pca, col_profile = st.columns([1.3, 1])
-
-    with col_pca:
-        st.markdown("**PCA 2D Scatter Plot — Distribusi Cluster**")
-        if "cluster" in df.columns:
-            pca    = PCA(n_components=2, random_state=42)
-            coords = pca.fit_transform(df[FEATURES].fillna(0))
-            var1   = pca.explained_variance_ratio_[0] * 100
-            var2   = pca.explained_variance_ratio_[1] * 100
-
-            fig3, ax3 = plt.subplots(figsize=(6.5, 5))
-            cluster_colors = {0: RED, 1: ACCENT}
-            cluster_labels = {0: "Cluster 0 — Kurang Aktif", 1: "Cluster 1 — Aktif & Produktif"}
-            for cid, color in cluster_colors.items():
-                mask_c = df["cluster"] == cid
-                ax3.scatter(
-                    coords[mask_c, 0], coords[mask_c, 1],
-                    c=color, alpha=0.55, s=18, label=cluster_labels[cid], linewidths=0
-                )
-            ax3.set_xlabel(f"PC1 ({var1:.1f}% var)", fontsize=10)
-            ax3.set_ylabel(f"PC2 ({var2:.1f}% var)", fontsize=10)
-            ax3.legend(fontsize=9, facecolor="#1a1d27", edgecolor="#2a2d3e", labelcolor="#c0c4d6")
-            ax3.grid(True, alpha=0.3)
-            ax3.set_title("K-Means Clustering — PCA Projection", fontsize=11,
-                          fontweight="bold", color="#ffffff", pad=10)
-            fig3.patch.set_facecolor("#1a1d27")
-            st.pyplot(fig3, use_container_width=True)
-        else:
-            st.info("Kolom `cluster` tidak ditemukan di dataset.")
-
-    with col_profile:
-        st.markdown("**Profil Rata-rata per Cluster**")
-        cluster_df = pd.DataFrame({
-            "Metrik"               : ["Study Hours", "Attendance (%)", "Productive Score",
-                                      "Digital Balance", "Placement Rate (%)"],
-            "Cluster 0 (Kurang Aktif)": [3.54, 69.27, 4.27, -3.23, 68.12],
-            "Cluster 1 (Aktif & Produktif)": [8.34, 70.47, 7.64, 2.96, 98.37],
-        })
-        st.dataframe(cluster_df, use_container_width=True, hide_index=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Mini bar chart: placement rate per cluster
-        fig4, ax4 = plt.subplots(figsize=(5, 2.8))
-        bars = ax4.bar(
-            ["Cluster 0\n(Kurang Aktif)", "Cluster 1\n(Aktif & Produktif)"],
-            [68.12, 98.37],
-            color=[RED, GREEN], width=0.45, edgecolor="none"
-        )
-        for bar, val in zip(bars, [68.12, 98.37]):
-            ax4.text(bar.get_x() + bar.get_width() / 2,
-                     bar.get_height() + 1.5, f"{val}%",
-                     ha="center", va="bottom", fontsize=11, fontweight="bold", color="#ffffff")
-        ax4.set_ylim(0, 110)
-        ax4.set_ylabel("Placement Rate (%)", fontsize=9)
-        ax4.set_title("Placement Rate per Cluster", fontsize=10, fontweight="bold", color="#ffffff")
-        ax4.grid(axis="y", alpha=0.3)
-        fig4.patch.set_facecolor("#1a1d27")
-        st.pyplot(fig4, use_container_width=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<p class="section-header">Distribusi Placement Status per Cluster</p>', unsafe_allow_html=True)
-
-    if "cluster" in df.columns:
-        crosstab = pd.crosstab(
-            df["cluster"], df["placement_status"],
-            rownames=["Cluster"], colnames=["Placement Status"],
-            margins=True
-        )
-        crosstab.index = [
-            "Cluster 0 — Kurang Aktif" if str(i) == "0" else
-            "Cluster 1 — Aktif & Produktif" if str(i) == "1" else "All"
-            for i in crosstab.index
-        ]
-        crosstab.columns = [
-            "Not Placed (0)" if str(c) == "0" else
-            "Placed (1)" if str(c) == "1" else "Total"
-            for c in crosstab.columns
-        ]
-        st.dataframe(crosstab, use_container_width=True)
+    st.markdown("---")
+    if arts['loaded']:
+        model_name = arts['model_info'].get('model_name', 'Unknown')
+        st.markdown(f"""
+        <div style='background:#1E2240; border-radius:8px; padding:0.75rem 1rem; font-size:0.78rem'>
+            <div style='color:#A8AED4; margin-bottom:4px'>Model Aktif</div>
+            <div style='color:#7DD3FC; font-weight:600'>{model_name}</div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        # Hardcoded fallback
-        ct = pd.DataFrame({
-            "Not Placed (0)": [242, 13, 255],
-            "Placed (1)"    : [513, 232, 745],
-            "Total"         : [755, 245, 1000],
-        }, index=["Cluster 0 — Kurang Aktif", "Cluster 1 — Aktif & Produktif", "All"])
-        st.dataframe(ct, use_container_width=True)
+        st.markdown(f"""
+        <div style='background:#2D1B1B; border-radius:8px; padding:0.75rem 1rem; font-size:0.78rem'>
+            <div style='color:#FCA5A5'>⚠ Model belum dimuat</div>
+            <div style='color:#7B82A8; margin-top:4px'>Jalankan notebook terlebih dahulu</div>
+        </div>
+        """, unsafe_allow_html=True)
 
+
+# ─────────────────────────────────────────────────────────────────
+# PAGE 1 — RINGKASAN DATASET
+# ─────────────────────────────────────────────────────────────────
+if "Ringkasan" in page:
     st.markdown("""
-    > **Insight:** Mahasiswa di Cluster 1 (Aktif & Produktif) memiliki Placement Rate **98.37%**,
-    > jauh melampaui Cluster 0 (Kurang Aktif) yang hanya **68.12%**.
-    > Perbedaan utama terletak pada *productive_score*, *study_hours*, dan *digital_balance*.
-    """)
+    <div class='page-header'>
+        <h1>📊 Ringkasan Dataset</h1>
+        <p>Overview statistik dan distribusi data Student Placement</p>
+    </div>
+    """, unsafe_allow_html=True)
 
+    if df_raw is None:
+        st.error("Dataset tidak ditemukan di `datasets/student_dataset_10000_rows.csv`")
+        st.stop()
 
-# ═══════════════════════════════════════════════════════
-# TAB 4 – PERFORMA MODEL
-# ═══════════════════════════════════════════════════════
-with tab4:
-    st.markdown('<p class="section-header">Evaluasi Model Random Forest</p>', unsafe_allow_html=True)
+    df = df_raw.copy()
 
-    # Simulated / real evaluation metrics
-    if model_loaded:
-        X = df[FEATURES].fillna(0)
-        y = df["placement_status"]
-        X_scaled = scaler.transform(X)
-        y_pred   = model.predict(X_scaled)
-        y_prob   = model.predict_proba(X_scaled)[:, 1]
-    # else:
-    #     # Dummy data for display
-    #     rng2   = np.random.default_rng(99)
-    #     n_eval = len(df)
-    #     y      = df["placement_status"].values
-    #     score  = (
-    #         df["productive_score"] * 0.35 +
-    #         df["study_hours"]      * 0.15 +
-    #         df["academic_composite"] * 0.20 +
-    #         df["digital_balance"] / 10 * 0.10 +
-    #         df["attendance"] / 100 * 0.10 +
-    #         rng2.normal(0, 0.05, n_eval)
-    #     )
-    #     y_prob = np.clip(1 / (1 + np.exp(-(score - score.mean()) / score.std() * 2.5)), 0.01, 0.99)
-    #     y_pred = (y_prob >= 0.5).astype(int)
+    # ── KPI Row ──────────────────────────────────────────────────
+    placed_pct = (df['placement_status'] == 'Placed').mean() * 100
+    c1, c2, c3, c4 = st.columns(4)
+    cards = [
+        (f"{len(df):,}", "Total Data", f"{df.shape[1]} fitur"),
+        (f"{df.duplicated().sum()}", "Duplikat", "Tidak ada duplikasi" if df.duplicated().sum() == 0 else "Perlu ditangani"),
+        (f"{df.isna().sum().sum()}", "Missing Value", "Data bersih ✓" if df.isna().sum().sum() == 0 else "Perlu imputing"),
+        (f"{placed_pct:.1f}%", "Placed Rate", f"{(df['placement_status']=='Placed').sum():,} mahasiswa")
+    ]
+    for col, (val, label, sub) in zip([c1, c2, c3, c4], cards):
+        with col:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <div class='metric-value'>{val}</div>
+                <div class='metric-label'>{label}</div>
+                <div class='metric-sub'>{sub}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    cm      = confusion_matrix(y, y_pred)
-    fpr, tpr, _ = roc_curve(y, y_prob)
-    roc_auc = auc(fpr, tpr)
-    report  = classification_report(y, y_pred, output_dict=True)
-
-    # Metric cards
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Accuracy",  f"{report['accuracy']*100:.2f}%")
-    m2.metric("Precision", f"{report['1']['precision']*100:.2f}%")
-    m3.metric("Recall",    f"{report['1']['recall']*100:.2f}%")
-    m4.metric("F1-Score",  f"{report['1']['f1-score']*100:.2f}%")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_cm, col_roc = st.columns(2)
-
-    with col_cm:
-        st.markdown("**Confusion Matrix**")
-        fig5, ax5 = plt.subplots(figsize=(5, 4))
-        sns.heatmap(
-            cm, annot=True, fmt="d", cmap="Blues",
-            xticklabels=["Not Placed", "Placed"],
-            yticklabels=["Not Placed", "Placed"],
-            linewidths=1, linecolor="#2a2d3e",
-            cbar_kws={"shrink": 0.8}, ax=ax5
-        )
-        ax5.set_xlabel("Predicted", fontsize=10)
-        ax5.set_ylabel("Actual",    fontsize=10)
-        ax5.set_title("Confusion Matrix", fontsize=11, fontweight="bold", color="#ffffff", pad=10)
-        fig5.patch.set_facecolor("#1a1d27")
-        ax5.set_facecolor("#1a1d27")
-        st.pyplot(fig5, use_container_width=True)
-
-    with col_roc:
-        st.markdown("**ROC Curve**")
-        fig6, ax6 = plt.subplots(figsize=(5, 4))
-        ax6.plot(fpr, tpr, color=ACCENT, lw=2.5, label=f"AUC = {roc_auc:.4f}")
-        ax6.plot([0, 1], [0, 1], color="#555", linestyle="--", lw=1.5)
-        ax6.fill_between(fpr, tpr, alpha=0.08, color=ACCENT)
-        ax6.set_xlim([0, 1]); ax6.set_ylim([0, 1.02])
-        ax6.set_xlabel("False Positive Rate", fontsize=10)
-        ax6.set_ylabel("True Positive Rate",  fontsize=10)
-        ax6.set_title("ROC Curve — Random Forest", fontsize=11, fontweight="bold", color="#ffffff", pad=10)
-        ax6.legend(fontsize=10, facecolor="#1a1d27", edgecolor="#2a2d3e", labelcolor="#c0c4d6")
-        ax6.grid(True, alpha=0.3)
-        fig6.patch.set_facecolor("#1a1d27")
-        ax6.set_facecolor("#1a1d27")
-        st.pyplot(fig6, use_container_width=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown('<p class="section-header">Feature Importance</p>', unsafe_allow_html=True)
-
-    if model_loaded:
-        importances = model.feature_importances_
-        feat_imp = pd.DataFrame({
-            "Feature"  : FEATURES,
-            "Importance": importances
-        }).sort_values("Importance", ascending=False)
-    # else:
-    #     feat_imp = pd.DataFrame({
-    #         "Feature"  : ["productive_score", "study_hours", "academic_composite",
-    #                        "digital_balance", "assignments_completed", "previous_score",
-    #                        "attendance", "internet_usage", "sleep_hours", "sleep_quality"],
-    #         "Importance": [0.2806, 0.1495, 0.1362, 0.1183, 0.0832,
-    #                        0.0712, 0.0662, 0.0409, 0.0386, 0.0153]
-    #     })
-
-    col_fi_chart, col_fi_table = st.columns([1.5, 1])
-
-    with col_fi_chart:
-        fig7, ax7 = plt.subplots(figsize=(7, 4.5))
-        colors_fi = [ACCENT if i == 0 else ACCENT2 if i == 1 else "#4a5568"
-                     for i in range(len(feat_imp))]
-        ax7.barh(feat_imp["Feature"][::-1], feat_imp["Importance"][::-1],
-                 color=colors_fi[::-1], edgecolor="none", height=0.65)
-        ax7.set_xlabel("Importance Score", fontsize=10)
-        ax7.set_title("Feature Importance — Random Forest", fontsize=11,
-                      fontweight="bold", color="#ffffff", pad=10)
-        ax7.grid(axis="x", alpha=0.3)
-        ax7.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.3f"))
-        fig7.patch.set_facecolor("#1a1d27")
-        ax7.set_facecolor("#1a1d27")
-        fig7.tight_layout()
-        st.pyplot(fig7, use_container_width=True)
-
-    with col_fi_table:
-        st.markdown("**Tabel Feature Importance**")
-        fi_display = feat_imp.copy()
-        fi_display["Importance"] = fi_display["Importance"].map("{:.4f}".format)
-        fi_display["Rank"] = range(1, len(fi_display) + 1)
-        fi_display = fi_display[["Rank", "Feature", "Importance"]].reset_index(drop=True)
-        st.dataframe(fi_display, use_container_width=True, hide_index=True, height=360)
-
-    st.markdown("""
-    > 🔑 **Top-4 Faktor Penentu Placement:**
-    > `productive_score` · `study_hours` · `academic_composite` · `digital_balance`
-    > Keempat fitur ini menyumbang **>68%** dari total feature importance model.
-    """)
-
-
-# ═══════════════════════════════════════════════════════
-# TAB 5 – PREDIKSI INTERAKTIF
-# ═══════════════════════════════════════════════════════
-with tab5:
-    st.markdown('<p class="section-header">Prediksi Status Placement</p>', unsafe_allow_html=True)
-    st.markdown("Isi nilai fitur di bawah ini, lalu tekan **Prediksi** untuk melihat hasil.")
-
-    col_a, col_b = st.columns(2)
+    st.markdown("<div class='section-title'>Distribusi Kelas Target</div>", unsafe_allow_html=True)
+    col_a, col_b = st.columns([1, 1])
 
     with col_a:
-        study_hours  = st.slider("📚 Study Hours",             0.0, 12.0, 6.0, 0.1)
-        attendance   = st.slider("🏫 Attendance (%)",          0,   100,  75,  1)
-        sleep_hours  = st.slider("😴 Sleep Hours",             3.0, 10.0, 7.0, 0.1)
-        internet_use = st.slider("🌐 Internet Usage (jam/hari)", 0.0, 12.0, 5.0, 0.1)
-        assignments  = st.slider("📝 Assignments Completed",   0,   20,   10,  1)
+        vc = df['placement_status'].value_counts()
+        fig, ax = _fig(5, 3.5)
+        bars = ax.bar(vc.index, vc.values,
+                      color=[PLACED_CLR if x == 'Placed' else NOT_CLR for x in vc.index],
+                      width=0.5, zorder=3)
+        ax.yaxis.grid(True, color=GRID, zorder=0)
+        ax.set_axisbelow(True)
+        for bar in bars:
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 50,
+                    f'{bar.get_height():,}', ha='center', va='bottom',
+                    fontsize=10, fontweight='600', color='#1A1D2E')
+        ax.set_title('Jumlah per Kelas', fontweight='600', color='#1A1D2E', pad=10)
+        ax.set_xlabel('')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
 
     with col_b:
-        prev_score   = st.slider("🏆 Previous Score",          0,   100,  70,  1)
-        prod_score   = st.slider("⚡ Productive Score",        0.0, 10.0, 5.0, 0.1)
-        acad_comp    = st.slider("🎓 Academic Composite",      0.0, 1.0,  0.7, 0.01)
-        dig_balance  = st.slider("⚖️ Digital Balance",         -10.0, 10.0, 0.0, 0.1)
-        sleep_qual   = st.slider("🌙 Sleep Quality",           0.0, 1.0,  0.6, 0.01)
+        fig2, ax2 = _fig(5, 3.5)
+        wedges, texts, autotexts = ax2.pie(
+            vc.values,
+            labels=vc.index,
+            autopct='%1.1f%%',
+            colors=[PLACED_CLR, NOT_CLR],
+            startangle=90,
+            wedgeprops=dict(edgecolor='white', linewidth=2)
+        )
+        for at in autotexts:
+            at.set_fontsize(11)
+            at.set_fontweight('600')
+        ax2.set_title('Proporsi Kelas', fontweight='600', color='#1A1D2E', pad=10)
+        st.pyplot(fig2, use_container_width=True)
+        plt.close()
 
-    input_data = pd.DataFrame({
-        "study_hours"          : [study_hours],
-        "attendance"           : [attendance],
-        "sleep_hours"          : [sleep_hours],
-        "internet_usage"       : [internet_use],
-        "assignments_completed": [assignments],
-        "previous_score"       : [prev_score],
-        "productive_score"     : [prod_score],
-        "academic_composite"   : [acad_comp],
-        "digital_balance"      : [dig_balance],
-        "sleep_quality"        : [sleep_qual],
-    })
+    st.markdown("<div class='section-title'>Statistik Deskriptif</div>", unsafe_allow_html=True)
+    num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    desc = df[num_cols].describe().T.round(2)
+    desc.index.name = 'Fitur'
+    st.dataframe(
+        desc.style
+            .format(precision=2)
+            .background_gradient(subset=['mean'], cmap='Blues')
+            .set_properties(**{'font-size': '0.8rem'}),
+        use_container_width=True
+    )
+
+    st.markdown("<div class='section-title'>Preview Data</div>", unsafe_allow_html=True)
+    st.dataframe(df.head(10), use_container_width=True, height=280)
+
+
+# ─────────────────────────────────────────────────────────────────
+# PAGE 2 — EDA
+# ─────────────────────────────────────────────────────────────────
+elif "Exploratory" in page:
+    st.markdown("""
+    <div class='page-header'>
+        <h1>🔍 Exploratory Data Analysis</h1>
+        <p>Distribusi fitur, korelasi, dan perbandingan antar kelas target</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df_raw is None:
+        st.error("Dataset tidak ditemukan.")
+        st.stop()
+
+    df = df_raw.copy()
+    num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+
+    tab1, tab2, tab3 = st.tabs(["📈 Distribusi Fitur", "🌡️ Korelasi Heatmap", "📦 Boxplot per Kelas"])
+
+    with tab1:
+        st.markdown("<div class='section-title'>Histogram Distribusi Fitur Numerik</div>", unsafe_allow_html=True)
+        n_cols = 3
+        n_rows = (len(num_cols) + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, n_rows * 3.2), facecolor=BG)
+        axes = axes.flatten()
+        for i, col in enumerate(num_cols):
+            ax = axes[i]
+            ax.set_facecolor(BG)
+            placed   = df[df['placement_status'] == 'Placed'][col].dropna()
+            not_placed = df[df['placement_status'] == 'Not Placed'][col].dropna()
+            ax.hist(not_placed, bins=25, alpha=0.6, color=NOT_CLR, label='Not Placed', edgecolor='none')
+            ax.hist(placed,     bins=25, alpha=0.6, color=PLACED_CLR, label='Placed', edgecolor='none')
+            ax.set_title(col, fontsize=9, fontweight='600', color='#1A1D2E')
+            ax.tick_params(labelsize=7, colors='#888')
+            for sp in ax.spines.values(): sp.set_color('#E0E4F8')
+            ax.yaxis.grid(True, color=GRID, zorder=0, alpha=0.7)
+            ax.set_axisbelow(True)
+        for j in range(len(num_cols), len(axes)):
+            axes[j].set_visible(False)
+        patch_p = mpatches.Patch(color=PLACED_CLR, alpha=0.7, label='Placed')
+        patch_n = mpatches.Patch(color=NOT_CLR,    alpha=0.7, label='Not Placed')
+        fig.legend(handles=[patch_p, patch_n], loc='lower right',
+                   framealpha=0.9, fontsize=8, ncol=2)
+        plt.tight_layout(pad=1.5)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+    with tab2:
+        st.markdown("<div class='section-title'>Heatmap Korelasi Antar Fitur Numerik</div>", unsafe_allow_html=True)
+        corr = df[num_cols].corr()
+        fig, ax = plt.subplots(figsize=(10, 8), facecolor=BG)
+        mask = np.triu(np.ones_like(corr, dtype=bool))
+        sns.heatmap(
+            corr, mask=mask, annot=True, fmt='.2f',
+            cmap='RdYlBu_r', center=0, vmin=-1, vmax=1,
+            linewidths=0.5, linecolor='#F0F2FF',
+            ax=ax, annot_kws={'size': 8}
+        )
+        ax.set_title('Correlation Matrix', fontweight='600', color='#1A1D2E', pad=12)
+        ax.tick_params(labelsize=8, colors='#555')
+        plt.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+        st.markdown("""
+        <div class='info-box'>
+            💡 <b>Interpretasi:</b> Korelasi tinggi (&gt;0.7) antar fitur dapat mengindikasikan multikolinearitas.
+            Fitur <code>exam_score</code> dihapus karena terindikasi <i>data leakage</i> (separasi sempurna terhadap target).
+        </div>
+        """, unsafe_allow_html=True)
+
+    with tab3:
+        st.markdown("<div class='section-title'>Perbandingan Distribusi Fitur per Kelas</div>", unsafe_allow_html=True)
+        n_rows2 = (len(num_cols) + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(n_rows2, n_cols, figsize=(14, n_rows2 * 3.5), facecolor=BG)
+        axes = axes.flatten()
+        for i, col in enumerate(num_cols):
+            ax = axes[i]
+            ax.set_facecolor(BG)
+            sns.boxplot(
+                data=df, x='placement_status', y=col,
+                palette={'Placed': PLACED_CLR, 'Not Placed': NOT_CLR},
+                width=0.5, linewidth=1.2, fliersize=3, ax=ax
+            )
+            ax.set_title(col, fontsize=9, fontweight='600', color='#1A1D2E')
+            ax.set_xlabel(''); ax.set_ylabel('')
+            ax.tick_params(labelsize=7, colors='#888')
+            for sp in ax.spines.values(): sp.set_color('#E0E4F8')
+            ax.yaxis.grid(True, color=GRID, zorder=0)
+            ax.set_axisbelow(True)
+        for j in range(len(num_cols), len(axes)):
+            axes[j].set_visible(False)
+        plt.tight_layout(pad=1.5)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+
+# ─────────────────────────────────────────────────────────────────
+# PAGE 3 — CLUSTERING
+# ─────────────────────────────────────────────────────────────────
+elif "Clustering" in page:
+    st.markdown("""
+    <div class='page-header'>
+        <h1>🗂️ K-Means Clustering</h1>
+        <p>Profil kelompok mahasiswa berdasarkan perilaku akademik</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df_raw is None or not arts['loaded']:
+        st.error("Dataset atau model belum tersedia. Pastikan semua file di folder `model/` sudah ada.")
+        st.stop()
+
+    df     = apply_feature_engineering(df_raw.copy())
+    kmeans = arts['kmeans']
+    scaler_c = arts['scaler_cluster']
+    le = arts['le']
+
+    # Encode target jika belum
+    if df['placement_status'].dtype == object:
+        df['placement_status_enc'] = le.transform(df['placement_status'])
+    else:
+        df['placement_status_enc'] = df['placement_status']
+
+    drop_cols = ['placement_status', 'placement_status_enc', 'exam_score'] if 'exam_score' in df.columns else ['placement_status', 'placement_status_enc']
+    X_full = df.drop(columns=drop_cols, errors='ignore')
+
+    X_scaled = scaler_c.transform(X_full)
+    cluster_labels = kmeans.predict(X_scaled)
+    df['cluster'] = cluster_labels
+
+    cluster_names = {0: 'Kurang Aktif', 1: 'Aktif & Produktif'}
+    df['cluster_name'] = df['cluster'].map(cluster_names)
+
+    tab1, tab2, tab3 = st.tabs(["🔵 PCA Scatter Plot", "📊 Profil Cluster", "🔗 Cross-tab Placement"])
+
+    with tab1:
+        st.markdown("<div class='section-title'>Visualisasi Cluster — PCA 2D</div>", unsafe_allow_html=True)
+        pca = PCA(n_components=2, random_state=42)
+        X_pca = pca.fit_transform(X_scaled)
+
+        fig, ax = _fig(8, 5.5)
+        cluster_colors = [PALETTE[0], PALETTE[1]]
+        for c_idx in sorted(df['cluster'].unique()):
+            mask = df['cluster'] == c_idx
+            ax.scatter(
+                X_pca[mask, 0], X_pca[mask, 1],
+                c=cluster_colors[c_idx],
+                alpha=0.5, s=18,
+                label=f"Cluster {c_idx}: {cluster_names.get(c_idx, str(c_idx))}",
+                edgecolors='none'
+            )
+        ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)", color='#555', fontsize=9)
+        ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)", color='#555', fontsize=9)
+        ax.set_title('K-Means Cluster — PCA 2D Projection', fontweight='600', color='#1A1D2E', pad=10)
+        ax.legend(framealpha=0.9, fontsize=9)
+        ax.yaxis.grid(True, color=GRID, zorder=0)
+        ax.xaxis.grid(True, color=GRID, zorder=0)
+        ax.set_axisbelow(True)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+        col1, col2 = st.columns(2)
+        for c_idx in sorted(df['cluster'].unique()):
+            cnt = (df['cluster'] == c_idx).sum()
+            pct = cnt / len(df) * 100
+            with (col1 if c_idx == 0 else col2):
+                st.markdown(f"""
+                <div class='metric-card'>
+                    <div class='metric-value' style='color:{cluster_colors[c_idx]}'>{cnt:,}</div>
+                    <div class='metric-label'>Cluster {c_idx} — {cluster_names.get(c_idx, '')}</div>
+                    <div class='metric-sub'>{pct:.1f}% dari total data</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown("<div class='section-title'>Profil Rata-rata Fitur per Cluster</div>", unsafe_allow_html=True)
+        profile = df.groupby('cluster')[X_full.columns].mean().round(2)
+
+        fig, ax = plt.subplots(figsize=(11, 5.5), facecolor=BG)
+        sns.heatmap(
+            profile,
+            annot=True, fmt='.2f',
+            cmap='Blues',
+            linewidths=0.5, linecolor='#F0F2FF',
+            ax=ax, annot_kws={'size': 8}
+        )
+        ax.set_title('Rata-rata Fitur per Cluster', fontweight='600', color='#1A1D2E', pad=12)
+        ax.set_ylabel('Cluster', color='#555')
+        ax.tick_params(labelsize=8, colors='#555')
+        y_labels = [f"C{int(t.get_text())} — {cluster_names.get(int(t.get_text()), '')}"
+                    for t in ax.get_yticklabels()]
+        ax.set_yticklabels(y_labels, rotation=0)
+        plt.tight_layout()
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.dataframe(
+            profile.rename(index=cluster_names).style
+                .format(precision=2)
+                .background_gradient(cmap='Blues', axis=0),
+            use_container_width=True
+        )
+
+    with tab3:
+        st.markdown("<div class='section-title'>Distribusi Placement Status per Cluster</div>", unsafe_allow_html=True)
+        crosstab = pd.crosstab(df['cluster'], df['placement_status'], normalize='index') * 100
+        crosstab.index = [cluster_names.get(i, f'Cluster {i}') for i in crosstab.index]
+
+        fig, ax = _fig(8, 4.5)
+        bottom = np.zeros(len(crosstab))
+        colors_ct = [NOT_CLR, PLACED_CLR]
+        for i, col_name in enumerate(crosstab.columns):
+            vals = crosstab[col_name].values
+            bars = ax.bar(crosstab.index, vals, bottom=bottom,
+                          color=colors_ct[i], label=col_name, width=0.45, zorder=3)
+            for bar, b in zip(bars, bottom):
+                h = bar.get_height()
+                if h > 5:
+                    ax.text(bar.get_x() + bar.get_width()/2,
+                            b + h/2, f'{h:.1f}%',
+                            ha='center', va='center',
+                            fontsize=9, fontweight='600', color='white')
+            bottom += vals
+
+        ax.set_ylabel('Persentase (%)', color='#555', fontsize=9)
+        ax.set_title('Placement Status per Cluster (%)', fontweight='600', color='#1A1D2E', pad=10)
+        ax.set_ylim(0, 105)
+        ax.legend(title='Status', framealpha=0.9, fontsize=9)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.yaxis.grid(True, color=GRID, zorder=0)
+        ax.set_axisbelow(True)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.dataframe(
+            crosstab.round(2).style.format("{:.2f}%").background_gradient(cmap='Greens'),
+            use_container_width=True
+        )
+        st.markdown("""
+        <div class='info-box'>
+            ℹ️ <b>Catatan:</b> Cluster label <b>tidak</b> digunakan sebagai fitur input model klasifikasi
+            untuk mencegah data leakage. Clustering berfungsi sebagai analisis deskriptif/profiling saja.
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────
+# PAGE 4 — PERFORMA MODEL
+# ─────────────────────────────────────────────────────────────────
+elif "Performa" in page:
+    st.markdown("""
+    <div class='page-header'>
+        <h1>🤖 Performa Model</h1>
+        <p>Evaluasi dan analisis model klasifikasi terbaik</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not arts['loaded']:
+        st.error(f"Model belum dimuat. Error: {arts.get('error', 'Unknown')}")
+        st.stop()
+
+    model_obj    = arts['model']
+    scaler_model = arts['scaler']
+    X_test       = arts['X_test']
+    y_test       = arts['y_test']
+    model_name   = arts['model_info'].get('model_name', 'Model')
+    feat_names   = arts['feature_names']
+
+    X_test_scaled = scaler_model.transform(X_test)
+    y_pred = model_obj.predict(X_test_scaled)
+    y_prob = model_obj.predict_proba(X_test_scaled)[:, 1]
+
+    acc  = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, average='weighted')
+    rec  = recall_score(y_test, y_pred, average='weighted')
+    f1   = f1_score(y_test, y_pred, average='weighted')
+    auc  = roc_auc_score(y_test, y_prob)
+
+    # ── Metric KPIs ──────────────────────────────────────────────
+    st.markdown(f"<div class='section-title'>Metrik Evaluasi — {model_name}</div>", unsafe_allow_html=True)
+    cols = st.columns(5)
+    kpis = [
+        (f"{acc:.4f}",  "Accuracy"),
+        (f"{prec:.4f}", "Precision (W)"),
+        (f"{rec:.4f}",  "Recall (W)"),
+        (f"{f1:.4f}",   "F1 Score (W)"),
+        (f"{auc:.4f}",  "AUC Score"),
+    ]
+    for col, (val, label) in zip(cols, kpis):
+        with col:
+            st.markdown(f"""
+            <div class='metric-card'>
+                <div class='metric-value' style='font-size:1.5rem; color:#4361EE'>{val}</div>
+                <div class='metric-label'>{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["📉 Confusion Matrix", "📈 ROC Curve", "⭐ Feature Importance"])
+
+    with tab1:
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            cm = confusion_matrix(y_test, y_pred)
+            fig, ax = _fig(5, 4.5)
+            disp = ConfusionMatrixDisplay(cm, display_labels=['Not Placed', 'Placed'])
+            disp.plot(cmap='Blues', ax=ax, colorbar=False)
+            ax.set_title(f'Confusion Matrix\n{model_name}', fontweight='600', color='#1A1D2E', pad=10)
+            ax.tick_params(labelsize=9)
+            st.pyplot(fig, use_container_width=True)
+            plt.close()
+
+        with col_b:
+            report = classification_report(y_test, y_pred,
+                                           target_names=['Not Placed', 'Placed'],
+                                           output_dict=True)
+            report_df = pd.DataFrame(report).T.round(4)
+            st.markdown("**Classification Report**")
+            st.dataframe(
+                report_df.style.format(precision=4).background_gradient(subset=['f1-score'], cmap='Blues'),
+                use_container_width=True
+            )
+
+    with tab2:
+        fpr, tpr, _ = roc_curve(y_test, y_prob)
+        fig, ax = _fig(7, 5)
+        ax.plot(fpr, tpr, color=PALETTE[0], linewidth=2.5, label=f'ROC Curve (AUC = {auc:.4f})')
+        ax.fill_between(fpr, tpr, alpha=0.08, color=PALETTE[0])
+        ax.plot([0, 1], [0, 1], '--', color='#AAAAAA', linewidth=1.2, label='Random Guess')
+        ax.set_xlabel('False Positive Rate', color='#555', fontsize=10)
+        ax.set_ylabel('True Positive Rate', color='#555', fontsize=10)
+        ax.set_title(f'ROC Curve — {model_name}', fontweight='600', color='#1A1D2E', pad=10)
+        ax.legend(framealpha=0.9, fontsize=10)
+        ax.yaxis.grid(True, color=GRID); ax.xaxis.grid(True, color=GRID)
+        ax.set_axisbelow(True)
+        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+        st.pyplot(fig, use_container_width=True)
+        plt.close()
+
+    with tab3:
+        if hasattr(model_obj, 'feature_importances_'):
+            fi = pd.Series(model_obj.feature_importances_, index=feat_names).sort_values(ascending=True)
+            fig, ax = _fig(8, max(4, len(fi) * 0.4))
+            colors_fi = [PALETTE[0] if v >= fi.quantile(0.75) else '#A8C1FF' for v in fi.values]
+            bars = ax.barh(fi.index, fi.values, color=colors_fi, height=0.6, zorder=3)
+            for bar in bars:
+                ax.text(bar.get_width() + 0.001, bar.get_y() + bar.get_height()/2,
+                        f'{bar.get_width():.4f}', va='center', fontsize=7.5, color='#444')
+            ax.xaxis.grid(True, color=GRID, zorder=0)
+            ax.set_axisbelow(True)
+            ax.set_xlabel('Importance', color='#555', fontsize=9)
+            ax.set_title(f'Feature Importance — {model_name}', fontweight='600', color='#1A1D2E', pad=10)
+            ax.tick_params(labelsize=8, colors='#555')
+            ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            plt.close()
+        else:
+            st.info("Feature importance tidak tersedia untuk model ini (XGBoost — gunakan SHAP untuk analisis lanjut).")
+
+
+# ─────────────────────────────────────────────────────────────────
+# PAGE 5 — PREDIKSI INTERAKTIF
+# ─────────────────────────────────────────────────────────────────
+elif "Prediksi" in page:
+    st.markdown("""
+    <div class='page-header'>
+        <h1>🎯 Prediksi Interaktif</h1>
+        <p>Masukkan data mahasiswa untuk memprediksi status penempatan kerja</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not arts['loaded']:
+        st.error(f"Model belum dimuat. Jalankan notebook dan pastikan folder `model/` lengkap.")
+        st.stop()
+
+    model_obj    = arts['model']
+    scaler_model = arts['scaler']
+    le           = arts['le']
+    feat_names   = arts['feature_names']
+    model_name   = arts['model_info'].get('model_name', 'Model')
+
+    st.markdown(f"""
+    <div class='info-box'>
+        🤖 Prediksi menggunakan model: <b>{model_name}</b>.
+        Isi semua input di bawah lalu klik tombol <b>Prediksi</b>.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Input Form ───────────────────────────────────────────────
+    st.markdown("<div class='section-title'>Data Akademik Mahasiswa</div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        age            = st.number_input("🎂 Age", min_value=17, max_value=40, value=21, step=1)
+        study_hours    = st.slider("📚 Study Hours / Day", 0.0, 12.0, 5.0, 0.5)
+        attendance     = st.slider("📅 Attendance (%)", 0, 100, 80)
+
+    with col2:
+        previous_score = st.slider("📝 Previous Score", 0, 100, 70)
+        sleep_hours    = st.slider("😴 Sleep Hours / Day", 4.0, 12.0, 7.0, 0.5)
+        assignments    = st.slider("✅ Assignments Completed", 0, 20, 10)
+
+    with col3:
+        internet_usage = st.slider("🌐 Internet Usage (hrs/day)", 0.0, 12.0, 3.0, 0.5)
+        gpa            = st.number_input("🏆 GPA", min_value=0.0, max_value=4.0, value=3.0, step=0.1, format="%.1f")
+
+    # ── Feature Engineering (sama dengan notebook) ───────────────
+    productive_score   = study_hours * 0.5 + assignments * 0.3
+    academic_composite = (previous_score / 95) * 0.6 + (attendance / 100) * 0.4
+    digital_balance    = study_hours - internet_usage
+    sleep_quality      = 1 if 7 <= sleep_hours <= 9 else (0.5 if sleep_hours in [6.0, 10.0] else 0)
+
+    input_dict = {
+        'age':                  age,
+        'study_hours':          study_hours,
+        'attendance':           attendance,
+        'previous_score':       previous_score,
+        'sleep_hours':          sleep_hours,
+        'assignments_completed': assignments,
+        'internet_usage':       internet_usage,
+        'gpa':                  gpa,
+        'productive_score':     productive_score,
+        'academic_composite':   academic_composite,
+        'digital_balance':      digital_balance,
+        'sleep_quality':        sleep_quality,
+    }
+
+    # Filter hanya kolom yang ada di feature_names
+    input_filtered = {k: input_dict[k] for k in feat_names if k in input_dict}
+    input_df = pd.DataFrame([input_filtered])[feat_names]
+
+    # ── Fitur turunan preview ─────────────────────────────────────
+    with st.expander("🔧 Lihat Fitur Turunan yang Dihitung Otomatis"):
+        derived = {
+            'productive_score':   f"{productive_score:.2f}  (study×0.5 + assignments×0.3)",
+            'academic_composite': f"{academic_composite:.2f}  (prev_score/95×0.6 + attendance/100×0.4)",
+            'digital_balance':    f"{digital_balance:.2f}  (study_hours − internet_usage)",
+            'sleep_quality':      f"{sleep_quality}  (1=ideal 7–9 jam, 0.5=borderline, 0=kurang/berlebih)"
+        }
+        for k, v in derived.items():
+            st.markdown(f"- **`{k}`** = {v}")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.button("🔮 Prediksi Sekarang", use_container_width=True, type="primary"):
-        if model_loaded:
-            scaled      = scaler.transform(input_data)
-            prediction  = model.predict(scaled)[0]
-            probability = model.predict_proba(scaled)[0][1]
-        else:
-            # Heuristic fallback
-            score_val = (
-                prod_score  * 0.35 +
-                study_hours * 0.20 +
-                acad_comp   * 10 * 0.20 +
-                (dig_balance + 10) / 20 * 10 * 0.15 +
-                attendance / 10 * 0.10
-            )
-            probability = float(np.clip(1 / (1 + np.exp(-(score_val - 5) / 2)), 0.01, 0.99))
-            prediction  = 1 if probability >= 0.5 else 0
+    # ── Predict Button ────────────────────────────────────────────
+    predict_btn = st.button("🔍 Prediksi Sekarang", type="primary", use_container_width=True)
 
-        col_res, col_gauge = st.columns([1, 1])
+    if predict_btn:
+        input_scaled = scaler_model.transform(input_df)
+        pred_enc     = model_obj.predict(input_scaled)[0]
+        pred_proba   = model_obj.predict_proba(input_scaled)[0]
+        pred_label   = le.inverse_transform([pred_enc])[0]
 
-        with col_res:
-            if prediction == 1:
+        prob_placed    = pred_proba[1] * 100
+        prob_not       = pred_proba[0] * 100
+
+        st.markdown("<div class='section-title'>Hasil Prediksi</div>", unsafe_allow_html=True)
+        col_r1, col_r2 = st.columns([1, 1])
+
+        with col_r1:
+            if pred_label == 'Placed':
                 st.markdown(f"""
-                <div class="predict-placed">
-                    <div class="predict-label" style="color:#00c853;">✅ PLACED</div>
-                    <div class="predict-prob" style="color:#00c853;">{probability*100:.1f}%</div>
-                    <div class="predict-desc">Probabilitas Penempatan</div>
+                <div class='pred-placed'>
+                    <div class='pred-label'>✅ {pred_label}</div>
+                    <div class='pred-sub'>Mahasiswa diprediksi berhasil mendapatkan penempatan kerja</div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div class="predict-notplaced">
-                    <div class="predict-label" style="color:#ff4b4b;">❌ NOT PLACED</div>
-                    <div class="predict-prob" style="color:#ff4b4b;">{probability*100:.1f}%</div>
-                    <div class="predict-desc">Probabilitas Penempatan</div>
+                <div class='pred-not-placed'>
+                    <div class='pred-label'>❌ {pred_label}</div>
+                    <div class='pred-sub'>Mahasiswa diprediksi belum mendapatkan penempatan kerja</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-        with col_gauge:
-            # Gauge-style progress
-            fig8, ax8 = plt.subplots(figsize=(5, 3.5))
-            theta = np.linspace(np.pi, 0, 200)
-            ax8.plot(np.cos(theta), np.sin(theta), color="#2a2d3e", lw=22, solid_capstyle="round")
-            fill_theta = np.linspace(np.pi, np.pi - probability * np.pi, 200)
-            color_gauge = GREEN if prediction == 1 else RED
-            ax8.plot(np.cos(fill_theta), np.sin(fill_theta), color=color_gauge,
-                     lw=22, solid_capstyle="round")
-            ax8.text(0, -0.22, f"{probability*100:.1f}%", ha="center", va="center",
-                     fontsize=26, fontweight="bold", color=color_gauge)
-            ax8.text(0, -0.50, "Placement Probability", ha="center", va="center",
-                     fontsize=9, color="#8b8fa8")
-            ax8.set_xlim(-1.3, 1.3); ax8.set_ylim(-0.65, 1.2)
-            ax8.axis("off")
-            ax8.set_facecolor("#1a1d27")
-            fig8.patch.set_facecolor("#1a1d27")
-            st.pyplot(fig8, use_container_width=True)
+        with col_r2:
+            fig, ax = _fig(5, 3.5)
+            labels  = ['Placed', 'Not Placed']
+            vals    = [prob_placed, prob_not]
+            colors  = [PLACED_CLR, NOT_CLR]
+            bars    = ax.barh(labels, vals, color=colors, height=0.45, zorder=3)
+            for bar in bars:
+                ax.text(min(bar.get_width() + 1, 98), bar.get_y() + bar.get_height()/2,
+                        f'{bar.get_width():.1f}%',
+                        va='center', fontsize=12, fontweight='700', color='#1A1D2E')
+            ax.set_xlim(0, 105)
+            ax.xaxis.grid(True, color=GRID, zorder=0)
+            ax.set_axisbelow(True)
+            ax.set_xlabel('Probabilitas (%)', color='#555', fontsize=9)
+            ax.set_title('Probabilitas Prediksi', fontweight='600', color='#1A1D2E', pad=8)
+            ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            plt.close()
 
-        # Input summary
-        st.markdown("<br>**Ringkasan Input:**", unsafe_allow_html=True)
-        st.dataframe(input_data.T.rename(columns={0: "Nilai"}), use_container_width=True)
+        # ── Rekomendasi ───────────────────────────────────────────
+        st.markdown("<div class='section-title'>Rekomendasi</div>", unsafe_allow_html=True)
+        recs = []
+        if study_hours < 4:
+            recs.append("📚 Tingkatkan jam belajar — idealnya minimal **4–6 jam/hari**.")
+        if attendance < 75:
+            recs.append("📅 Tingkatkan kehadiran — target minimal **75%** untuk performa optimal.")
+        if internet_usage > study_hours:
+            recs.append("🌐 Kurangi penggunaan internet yang tidak produktif — saat ini melebihi jam belajar.")
+        if sleep_quality == 0:
+            recs.append("😴 Atur waktu tidur ke **7–9 jam/hari** untuk kualitas tidur optimal.")
+        if assignments < 8:
+            recs.append("✅ Perbanyak penyelesaian tugas — saat ini hanya **{} dari 20**.".format(assignments))
+        if gpa < 2.5:
+            recs.append("🏆 Fokus peningkatan GPA — nilai saat ini di bawah standar umum penempatan.")
 
-        # Advice
-        st.markdown("<br>", unsafe_allow_html=True)
-        if prediction == 1:
-            st.success("💡 Profil mahasiswa ini menunjukkan potensi penempatan yang **kuat**. Pertahankan productive score dan jam belajar yang tinggi.")
+        if pred_label == 'Placed' and not recs:
+            st.success("🎉 Profil mahasiswa sangat baik! Pertahankan konsistensi belajar dan kehadiran.")
+        elif recs:
+            for r in recs:
+                st.markdown(f"- {r}")
         else:
-            tips = []
-            if prod_score < 5: tips.append("tingkatkan **Productive Score** (saat ini rendah)")
-            if study_hours < 5: tips.append("perbanyak **Study Hours** (idealnya > 6 jam/hari)")
-            if dig_balance < 0: tips.append("perbaiki **Digital Balance** (kurangi penggunaan internet non-produktif)")
-            if acad_comp < 0.6: tips.append("perkuat **Academic Composite** melalui nilai dan keaktifan akademik")
-            tip_str = " · ".join(tips) if tips else "Fokus pada semua aspek akademik secara konsisten."
-            st.warning(f"💡 **Saran perbaikan:** {tip_str}")
+            st.info("Terus pertahankan performa akademik yang baik.")
