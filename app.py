@@ -800,7 +800,6 @@ elif "Prediksi" in page:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        age            = st.number_input("🎂 Age", min_value=17, max_value=40, value=21, step=1)
         study_hours    = st.slider("📚 Study Hours / Day", 0.0, 12.0, 5.0, 0.5)
         attendance     = st.slider("📅 Attendance (%)", 0, 100, 80)
 
@@ -811,7 +810,6 @@ elif "Prediksi" in page:
 
     with col3:
         internet_usage = st.slider("🌐 Internet Usage (hrs/day)", 0.0, 12.0, 3.0, 0.5)
-        gpa            = st.number_input("🏆 GPA", min_value=0.0, max_value=4.0, value=3.0, step=0.1, format="%.1f")
 
     # ── Feature Engineering (sama dengan notebook) ───────────────
     productive_score   = study_hours * 0.5 + assignments * 0.3
@@ -820,14 +818,12 @@ elif "Prediksi" in page:
     sleep_quality      = 1 if 7 <= sleep_hours <= 9 else (0.5 if sleep_hours in [6.0, 10.0] else 0)
 
     input_dict = {
-        'age':                  age,
         'study_hours':          study_hours,
         'attendance':           attendance,
         'previous_score':       previous_score,
         'sleep_hours':          sleep_hours,
         'assignments_completed': assignments,
         'internet_usage':       internet_usage,
-        'gpa':                  gpa,
         'productive_score':     productive_score,
         'academic_composite':   academic_composite,
         'digital_balance':      digital_balance,
@@ -915,8 +911,7 @@ elif "Prediksi" in page:
             recs.append("😴 Atur waktu tidur ke **7–9 jam/hari** untuk kualitas tidur optimal.")
         if assignments < 8:
             recs.append("✅ Perbanyak penyelesaian tugas — saat ini hanya **{} dari 20**.".format(assignments))
-        if gpa < 2.5:
-            recs.append("🏆 Fokus peningkatan GPA — nilai saat ini di bawah standar umum penempatan.")
+      
 
         if pred_label == 'Placed' and not recs:
             st.success("🎉 Profil mahasiswa sangat baik! Pertahankan konsistensi belajar dan kehadiran.")
